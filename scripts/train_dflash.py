@@ -36,7 +36,7 @@ from specforge.modeling.target.dflash_target_model import (
 from specforge.modeling.target.target_utils import TargetEmbeddingsAndHead
 from specforge.optimizer import BF16Optimizer
 from specforge.tracker import create_tracker
-from specforge.utils import get_last_checkpoint, print_on_rank0, print_with_rank
+from specforge.utils import get_last_checkpoint, print_on_rank0, print_with_rank, rank_0_priority
 
 logging.getLogger("sglang.srt.mem_cache.memory_pool").setLevel(logging.WARNING)
 
@@ -236,27 +236,28 @@ def build_dataloader(
     )
     cache_key = hashlib.md5(cache_params_string.encode()).hexdigest()
 
-    train_dataset = _load_raw_dataset(args.train_data_path)
-    train_eagle3_dataset = build_eagle3_dataset(
-        dataset=train_dataset,
-        tokenizer=tokenizer,
-        chat_template=args.chat_template,
-        max_length=args.max_length,
-        is_preformatted=args.is_preformatted,
-        cache_dir=os.path.join(args.cache_dir, "processed_dataset"),
-        cache_key=cache_key,
-        num_proc=args.build_dataset_num_proc,
-        is_vlm=args.is_vlm,
-        processor=processor,
-    )
-    min_loss_tokens = 2 * args.block_size
-    original_size = len(train_eagle3_dataset)
-    train_eagle3_dataset = train_eagle3_dataset.filter(
-        lambda x: x["loss_mask"].sum() >= min_loss_tokens
-    )
-    print_on_rank0(
-        f"Filtered train dataset: {original_size} -> {len(train_eagle3_dataset)} samples"
-    )
+    with rank_0_priority():
+        train_dataset = _load_raw_dataset(args.train_data_path)
+        train_eagle3_dataset = build_eagle3_dataset(
+            dataset=train_dataset,
+            tokenizer=tokenizer,
+            chat_template=args.chat_template,
+            max_length=args.max_length,
+            is_preformatted=args.is_preformatted,
+            cache_dir=os.path.join(args.cache_dir, "processed_dataset"),
+            cache_key=cache_key,
+            num_proc=args.build_dataset_num_proc,
+            is_vlm=args.is_vlm,
+            processor=processor,
+        )
+        min_loss_tokens = 2 * args.block_size
+        original_size = len(train_eagle3_dataset)
+        train_eagle3_dataset = train_eagle3_dataset.filter(
+            lambda x: x["loss_mask"].sum() >= min_loss_tokens
+        )
+        print_on_rank0(
+            f"Filtered train dataset: {original_size} -> {len(train_eagle3_dataset)} samples"
+        )
 
     train_dataloader = prepare_dp_dataloaders(
         train_eagle3_dataset,
@@ -269,16 +270,17 @@ def build_dataloader(
 
     eval_dataloader = None
     if args.eval_data_path:
-        eval_dataset = _load_raw_dataset(args.eval_data_path)
-        eval_eagle3_dataset = build_eagle3_dataset(
-            dataset=eval_dataset,
-            tokenizer=tokenizer,
-            chat_template=args.chat_template,
-            max_length=args.max_length,
-            is_preformatted=args.is_preformatted,
-            is_vlm=args.is_vlm,
-            processor=processor,
-        )
+        with rank_0_priority():
+            eval_dataset = _load_raw_dataset(args.eval_data_path)
+            eval_eagle3_dataset = build_eagle3_dataset(
+                dataset=eval_dataset,
+                tokenizer=tokenizer,
+                chat_template=args.chat_template,
+                max_length=args.max_length,
+                is_preformatted=args.is_preformatted,
+                is_vlm=args.is_vlm,
+                processor=processor,
+            )
         eval_dataloader = prepare_dp_dataloaders(
             eval_eagle3_dataset,
             args.batch_size,
