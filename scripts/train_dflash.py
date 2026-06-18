@@ -235,6 +235,7 @@ def build_dataloader(
         f"{args.target_model_path}"
     )
     cache_key = hashlib.md5(cache_params_string.encode()).hexdigest()
+    cache_dir = os.path.join(args.cache_dir, "processed_dataset")
 
     with rank_0_priority():
         train_dataset = _load_raw_dataset(args.train_data_path)
@@ -244,7 +245,7 @@ def build_dataloader(
             chat_template=args.chat_template,
             max_length=args.max_length,
             is_preformatted=args.is_preformatted,
-            cache_dir=os.path.join(args.cache_dir, "processed_dataset"),
+            cache_dir=cache_dir,
             cache_key=cache_key,
             num_proc=args.build_dataset_num_proc,
             is_vlm=args.is_vlm,
@@ -252,8 +253,16 @@ def build_dataloader(
         )
         min_loss_tokens = 2 * args.block_size
         original_size = len(train_eagle3_dataset)
+
+        # Filter dataset only once
+        cache_file_name = os.path.join(cache_dir, f"{cache_key}_filter_{args.block_size}.arrow")
+        print_on_rank0(f"filtered data is cached at {cache_file_name}")
+
         train_eagle3_dataset = train_eagle3_dataset.filter(
-            lambda x: x["loss_mask"].sum() >= min_loss_tokens
+            lambda x: x["loss_mask"].sum() >= min_loss_tokens,
+            num_proc=args.build_dataset_num_proc,
+            load_from_cache_file=True,
+            cache_file_name=cache_file_name
         )
         print_on_rank0(
             f"Filtered train dataset: {original_size} -> {len(train_eagle3_dataset)} samples"
