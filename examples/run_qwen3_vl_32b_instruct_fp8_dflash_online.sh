@@ -39,6 +39,7 @@ torchrun \
     --embedding-key model.language_model.embed_tokens.weight \
     --tp-size $TP_SIZE \
     --sglang-mem-fraction-static 0.5 \
+    --sglang-cuda-graph-max-bs 1 \
     --is-vlm \
     --min-pixels 65536 \
     --max-pixels 16777216 \

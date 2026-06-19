@@ -128,7 +128,6 @@ class SGLangDFlashTargetModel(DFlashTargetModel):
             trust_remote_code=trust_remote_code,
             dtype=torch_dtype,
             enable_return_hidden_states=True,  # Critical for DFlash
-            # disable_cuda_graph=True,
             tp_size=tp_size,
             pp_size=1,
             **kwargs,
