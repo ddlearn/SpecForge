@@ -31,7 +31,9 @@ python scripts/regenerate_train_data.py \
 """
 
 import argparse
+import base64
 import json
+import mimetypes
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
@@ -132,6 +134,7 @@ def parse_arguments():
     server_group.add_argument(
         "--server-address",
         type=str,
+        required=True,
         nargs="+",
         help="Server address and port for sglang model server",
     )
@@ -169,6 +172,16 @@ def compute_context_length(conversations: List[Dict[str, Any]]) -> int:
                     if isinstance(text, str):
                         length += len(text.split())
     return length
+
+
+def local_image_to_data_url(image_path: str) -> str:
+    """Convert a local image file to a base64 data URL for OpenAI API."""
+    mime_type, _ = mimetypes.guess_type(image_path)
+    if mime_type is None:
+        mime_type = "image/jpeg"
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:{mime_type};base64,{image_data}"
 
 
 def build_query_kwargs(args, messages, max_tokens=None):
@@ -215,13 +228,47 @@ def call_sglang(
         data["error"] = "Data starts with an assistant message"
         return data
 
+    # Detect VLM images and prepare base64 data URLs
+    images = data.get("images") or data.get("image")
+    image_data_urls = []
+    if images:
+        if isinstance(images, str):
+            images = [images]
+        for img_path in images:
+            try:
+                image_data_urls.append(local_image_to_data_url(img_path))
+            except Exception as e:
+                data["status"] = "error"
+                data["error"] = f"Failed to load image {img_path}: {e}"
+                return data
+
+    multimodal_msg = None
+
     for message in messages:
         if message["role"] == "system":
             regenerated_messages.append(message)
         elif message["role"] == "assistant":
             continue
         elif message["role"] == "user":
-            regenerated_messages.append(message)
+            # For the first user message with images, build multimodal content.
+            # Save the reference so we can restore plain-text content later.
+            if image_data_urls and multimodal_msg is None:
+                original_content = message["content"]
+                content_parts = []
+                for url in image_data_urls:
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": url},
+                    })
+                content_parts.append({
+                    "type": "text",
+                    "text": original_content,
+                })
+                regen_msg = {"role": "user", "content": content_parts}
+                multimodal_msg = (regen_msg, original_content)
+            else:
+                regen_msg = message
+            regenerated_messages.append(regen_msg)
 
             query_kwargs = build_query_kwargs(args, regenerated_messages, max_tokens)
 
@@ -247,6 +294,14 @@ def call_sglang(
             return data
     data["conversations"] = regenerated_messages
     data["status"] = "success"
+
+    # Restore the first user message back to plain-text content.
+    # We saved the original message reference and content before converting to
+    # multimodal format, so just assign it back directly.
+    if multimodal_msg is not None:
+        regen_msg, original_content = multimodal_msg
+        regen_msg["content"] = original_content
+
     return data
 
 
@@ -304,7 +359,7 @@ def main():
             dummy_data,
             max_tokens=1,
         )
-        if result is not None:
+        if result["status"] == "success":
             valid_server_addresses.append(server_address)
         else:
             print(f"Server {server_address} is not available")
