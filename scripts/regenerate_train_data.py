@@ -31,9 +31,7 @@ python scripts/regenerate_train_data.py \
 """
 
 import argparse
-import base64
 import json
-import mimetypes
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
@@ -174,16 +172,6 @@ def compute_context_length(conversations: List[Dict[str, Any]]) -> int:
     return length
 
 
-def local_image_to_data_url(image_path: str) -> str:
-    """Convert a local image file to a base64 data URL for OpenAI API."""
-    mime_type, _ = mimetypes.guess_type(image_path)
-    if mime_type is None:
-        mime_type = "image/jpeg"
-    with open(image_path, "rb") as f:
-        image_data = base64.b64encode(f.read()).decode("utf-8")
-    return f"data:{mime_type};base64,{image_data}"
-
-
 def build_query_kwargs(args, messages, max_tokens=None):
     effective_max_tokens = max_tokens if max_tokens is not None else args.max_tokens
 
@@ -228,19 +216,13 @@ def call_sglang(
         data["error"] = "Data starts with an assistant message"
         return data
 
-    # Detect VLM images and prepare base64 data URLs
+    # Detect VLM images and collect URLs
     images = data.get("images") or data.get("image")
-    image_data_urls = []
+    image_urls = []
     if images:
         if isinstance(images, str):
             images = [images]
-        for img_path in images:
-            try:
-                image_data_urls.append(local_image_to_data_url(img_path))
-            except Exception as e:
-                data["status"] = "error"
-                data["error"] = f"Failed to load image {img_path}: {e}"
-                return data
+        image_urls = list(images)
 
     multimodal_msg = None
 
@@ -252,10 +234,10 @@ def call_sglang(
         elif message["role"] == "user":
             # For the first user message with images, build multimodal content.
             # Save the reference so we can restore plain-text content later.
-            if image_data_urls and multimodal_msg is None:
+            if image_urls and multimodal_msg is None:
                 original_content = message["content"]
                 content_parts = []
-                for url in image_data_urls:
+                for url in image_urls:
                     content_parts.append({
                         "type": "image_url",
                         "image_url": {"url": url},
