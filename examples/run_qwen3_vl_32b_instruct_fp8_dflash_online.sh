@@ -43,4 +43,5 @@ torchrun \
     --is-vlm \
     --min-pixels 65536 \
     --max-pixels 16777216 \
-    --trust-remote-code
+    --trust-remote-code \
+    --dist-timeout 120
