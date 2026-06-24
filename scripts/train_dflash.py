@@ -170,6 +170,13 @@ def parse_args():
     tracker_group = parser.add_argument_group("tracker")
     TrackerArgs.add_args(tracker_group)
 
+    # profiling related args
+    profiling_group = parser.add_argument_group("profiling")
+    profiling_group.add_argument("--profile", action="store_true")
+    profiling_group.add_argument("--profile-start-step", type=int, default=30)
+    profiling_group.add_argument("--profile-num-steps", type=int, default=4)
+    profiling_group.add_argument("--profile-record-shapes", action="store_true")
+
     dist_group = parser.add_argument_group("distributed")
     dist_group.add_argument("--dist-timeout", type=int, default=30)
 
@@ -606,6 +613,28 @@ def main():
             if epoch == start_epoch and step_in_epoch < skip_steps:
                 continue
             global_step += 1
+
+            # Profiling
+            if args.profile:
+                if global_step == args.profile_start_step + 1:
+                    print_with_rank("Start profile")
+                    torch_profiler = torch.profiler.profile(
+                        activities=[
+                            torch.profiler.ProfilerActivity.CPU,
+                            torch.profiler.ProfilerActivity.CUDA,
+                        ],
+                        with_stack=True,
+                        record_shapes=args.profile_record_shapes,
+                    )
+                    torch_profiler.start()
+                if global_step == args.profile_start_step + args.profile_num_steps + 1:
+                    output_path = os.path.join(
+                        args.output_dir,
+                        f"profile_rank{dist.get_rank()}_{time.time()}.trace.json.gz",
+                    )
+                    print_with_rank(f"End profile {output_path=}")
+                    torch_profiler.stop()
+                    torch_profiler.export_chrome_trace(output_path)
 
             input_ids_cpu = data["input_ids"]
             attention_mask_cpu = data["attention_mask"]
