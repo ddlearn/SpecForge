@@ -195,6 +195,7 @@ def build_models(args) -> Tuple[DFlashTargetModel, DFlashDraftModel]:
                 f"Warning: checkpoint block_size ({draft_config.block_size}) differs from "
                 f"command-line arg ({args.block_size}). Using checkpoint value."
             )
+            args.block_size = draft_config.block_size
     else:
         target_config = AutoConfig.from_pretrained(args.target_model_path)
         draft_config = AutoConfig.from_pretrained(args.target_model_path)
