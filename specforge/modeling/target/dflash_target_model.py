@@ -155,9 +155,7 @@ class SGLangDFlashTargetModel(DFlashTargetModel):
     def set_capture_layers(self, layer_ids: List[int]) -> None:
         super().set_capture_layers(layer_ids)
         if hasattr(self.model_runner.model, "set_dflash_layers_to_capture"):
-            self.model_runner.model.set_dflash_layers_to_capture(
-                [val + 1 for val in layer_ids]
-            )
+            self.model_runner.model.set_dflash_layers_to_capture(layer_ids)
         elif hasattr(self.model_runner.model, "set_eagle3_layers_to_capture"):
             self.model_runner.model.set_eagle3_layers_to_capture(layer_ids)
 
