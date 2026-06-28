@@ -635,6 +635,9 @@ def main():
                     )
                     print_with_rank(f"End profile {output_path=}")
                     torch_profiler.stop()
+                    if dist.get_rank() == 0:
+                        os.makedirs(args.output_dir, exist_ok=True)
+                    dist.barrier()
                     torch_profiler.export_chrome_trace(output_path)
 
             input_ids_cpu = data["input_ids"]
