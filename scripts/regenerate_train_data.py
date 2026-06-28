@@ -207,7 +207,9 @@ def call_sglang(
     """Send a batch of prompts to sglang /v1/completions."""
     client = OpenAI(base_url=f"http://{server_address}/v1", api_key="None")
 
-    messages = data["conversations"]
+    is_openai_format = "messages" in data
+
+    messages = data["conversations"] if not is_openai_format else data["messages"]
     regenerated_messages = []
 
     # ignore data which starts with an assistant message
@@ -217,12 +219,13 @@ def call_sglang(
         return data
 
     # Detect VLM images and collect URLs
-    images = data.get("images") or data.get("image")
-    image_urls = []
-    if images:
-        if isinstance(images, str):
-            images = [images]
-        image_urls = list(images)
+    if not is_openai_format:
+        images = data.get("images") or data.get("image")
+        image_urls = []
+        if images:
+            if isinstance(images, str):
+                images = [images]
+            image_urls = list(images)
 
     multimodal_msg = None
 
@@ -232,25 +235,28 @@ def call_sglang(
         elif message["role"] == "assistant":
             continue
         elif message["role"] == "user":
-            # For the first user message with images, build multimodal content.
-            # Save the reference so we can restore plain-text content later.
-            if image_urls and multimodal_msg is None:
-                original_content = message["content"]
-                content_parts = []
-                for url in image_urls:
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": url},
-                    })
-                content_parts.append({
-                    "type": "text",
-                    "text": original_content,
-                })
-                regen_msg = {"role": "user", "content": content_parts}
-                multimodal_msg = (regen_msg, original_content)
+            if is_openai_format:
+                regenerated_messages.append(message)
             else:
-                regen_msg = message
-            regenerated_messages.append(regen_msg)
+                # For the first user message with images, build multimodal content.
+                # Save the reference so we can restore plain-text content later.
+                if image_urls and multimodal_msg is None:
+                    original_content = message["content"]
+                    content_parts = []
+                    for url in image_urls:
+                        content_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": url},
+                        })
+                    content_parts.append({
+                        "type": "text",
+                        "text": original_content,
+                    })
+                    regen_msg = {"role": "user", "content": content_parts}
+                    multimodal_msg = (regen_msg, original_content)
+                else:
+                    regen_msg = message
+                regenerated_messages.append(regen_msg)
 
             query_kwargs = build_query_kwargs(args, regenerated_messages, max_tokens)
 
@@ -274,13 +280,16 @@ def call_sglang(
             data["status"] = "error"
             data["error"] = f"Invalid message role: {message['role']}"
             return data
-    data["conversations"] = regenerated_messages
+    if is_openai_format:
+        data["messages"] = regenerated_messages
+    else:
+        data["conversations"] = regenerated_messages
     data["status"] = "success"
 
     # Restore the first user message back to plain-text content.
     # We saved the original message reference and content before converting to
     # multimodal format, so just assign it back directly.
-    if multimodal_msg is not None:
+    if multimodal_msg is not None and not is_openai_format:
         regen_msg, original_content = multimodal_msg
         regen_msg["content"] = original_content
 
@@ -417,7 +426,7 @@ def main():
                             error_samples += 1
                         else:
                             ctx_len = compute_context_length(
-                                regen_data.get("conversations", [])
+                                regen_data.get("conversations", regen_data.get("messages", []))
                             )
                             context_token_sum += ctx_len
                             if context_token_min is None:
@@ -456,7 +465,7 @@ def main():
                     error_samples += 1
                 else:
                     ctx_len = compute_context_length(
-                        regen_data.get("conversations", [])
+                        regen_data.get("conversations", regen_data.get("messages", []))
                     )
                     context_token_sum += ctx_len
                     if context_token_min is None:

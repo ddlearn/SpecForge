@@ -211,7 +211,78 @@ def preprocess_vlm_conversations(
         "image_grid_thw": [],
     }
 
-    for i, images in enumerate(examples["images"]):
+    is_openai_format = "messages" in examples
+
+    if is_openai_format:
+        num_samples = len(examples["messages"])
+    else:
+        num_samples = len(examples["images"])
+
+    for i in range(num_samples):
+        if is_openai_format:
+            messages = examples["messages"][i]
+            if not messages:
+                continue
+            # OpenAI format: convert image_url to image format for process_vision_info
+            converted_messages = []
+            for msg in messages:
+                if isinstance(msg.get("content"), list):
+                    content = []
+                    for item in msg["content"]:
+                        if item.get("type") == "image_url":
+                            content.append({"type": "image", "image": item["image_url"]["url"]})
+                        else:
+                            content.append(item)
+                    converted_messages.append({"role": msg["role"], "content": content})
+                else:
+                    converted_messages.append({"role": msg["role"], "content": msg["content"]})
+            messages = converted_messages
+
+            conversation = processor.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+
+            if not HAS_QWEN_VL_UTILS:
+                raise ImportError(
+                    "qwen_vl_utils is required for VLM preprocessing but is not installed. "
+                    "Please install it to use VLM features."
+                )
+            image_inputs, video_inputs = process_vision_info(messages)
+            assert image_inputs is not None, "image_inputs must not be None"
+
+            encoding = processor(
+                text=[conversation],
+                images=image_inputs,
+                videos=video_inputs,
+                max_length=max_length,
+                truncation=True,
+                return_tensors="pt",
+                return_offsets_mapping=True,
+                add_special_tokens=False,
+            )
+            input_ids = encoding.input_ids[0]
+            offsets = encoding.offset_mapping[0]
+            pixel_values = encoding.pixel_values
+            image_grid_thw = encoding.image_grid_thw
+
+            decoded_conversation = processor.tokenizer.decode(
+                encoding.input_ids[0], skip_special_tokens=False
+            )
+
+            loss_mask = _apply_loss_mask_from_chat_template(
+                decoded_conversation, offsets, chat_template
+            )
+
+            results["input_ids"].append(input_ids[None, :])
+            results["loss_mask"].append(loss_mask[None, :])
+            results["attention_mask"].append(torch.ones_like(loss_mask)[None, :])
+            results["pixel_values"].append(pixel_values)
+            results["image_grid_thw"].append(image_grid_thw)
+            continue
+
+        images = examples["images"][i]
         source = examples["conversations"][i]
         messages = []
         if not source:
