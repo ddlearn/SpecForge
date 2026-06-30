@@ -548,9 +548,7 @@ def build_eagle3_dataset(
 
     # adjust batch size based on dataset type
     if is_vlm:
-        batch_size = (
-            200  # reduce batch size for VLM datasets to avoid PyArrow offset overflow
-        )
+        batch_size = 20  # reduce for VLM to avoid Arrow 32-bit offset overflow with high-res images
     else:
         batch_size = 1000  # default for conversations
     dataset = dataset.map(
