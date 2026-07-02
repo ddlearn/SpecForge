@@ -11,7 +11,7 @@ import os
 import shutil
 import time
 import warnings
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import torch.distributed as dist
@@ -390,6 +390,7 @@ def record_metrics(
     optimizer,
     train_dataloader=None,
     mode: str = "train",
+    grad_norms: Optional[List[torch.Tensor]] = None,
 ) -> None:
     logdict = {}
 
@@ -402,6 +403,10 @@ def record_metrics(
     print_on_rank0(
         f"{mode.capitalize()} - Step {global_step} [{global_step}/{args.num_epochs * len(train_dataloader) // args.accumulation_steps}?], Loss: {loss:.4f}, Acc: {accuracy:.4f}"
     )
+
+    if grad_norms:
+        grad_norm = torch.stack([norm.detach().float() for norm in grad_norms]).mean()
+        logdict[f"{mode}/grad_norm"] = grad_norm.item()
 
     tracker.log(logdict, step=global_step)
 
@@ -594,6 +599,8 @@ def main():
 
     print_on_rank0(f"Initializing tracker (report_to={args.report_to})...")
     tracker = create_tracker(args, args.output_dir)
+    grad_norms = []
+    last_grad_norm = None
     print_on_rank0("Tracker initialized successfully.")
 
     last_time = time.time()
@@ -676,9 +683,15 @@ def main():
             (loss / args.accumulation_steps).backward()
 
             if global_step % args.accumulation_steps == 0:
-                optimizer.step()
+                grad_norm = optimizer.step()
+                grad_norm = grad_norm.detach().float()
+                grad_norm = grad_norm.pow(2)
+                dist.all_reduce(grad_norm, op=dist.ReduceOp.SUM)
+                grad_norm = grad_norm.sqrt()
+                grad_norms.append(grad_norm)
+                last_grad_norm = grad_norm.item()
 
-            if global_step % args.log_interval == 0:
+            if global_step % (args.log_interval * args.accumulation_steps) == 0:
                 loss_log = loss.clone()
                 acc_log = accuracy.clone()
                 dist.all_reduce(loss_log)
@@ -695,18 +708,21 @@ def main():
                     optimizer,
                     train_dataloader,
                     mode="train",
+                    grad_norms=grad_norms,
                 )
+                grad_norms = []
 
             if dist.get_rank() == 0:
                 elapsed = time.time() - last_time
                 last_time = time.time()
-                progress_bar.set_postfix(
-                    {
-                        "loss": f"{loss.item():.4f}",
-                        "acc": f"{accuracy.item():.4f}",
-                        "iter_time": f"{elapsed:.2f}s",
-                    }
-                )
+                postfix = {
+                    "loss": f"{loss.item():.4f}",
+                    "acc": f"{accuracy.item():.4f}",
+                    "iter_time": f"{elapsed:.2f}s",
+                }
+                if last_grad_norm is not None:
+                    postfix["grad_norm"] = f"{last_grad_norm:.2f}"
+                progress_bar.set_postfix(postfix)
 
             if global_step % args.save_interval == 0:
                 save_checkpoint(
