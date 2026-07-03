@@ -43,7 +43,8 @@ class BF16Optimizer:
                 mp.grad = (
                     p.grad.detach().to(torch.float32) if p.grad is not None else None
                 )
-        total_norm = torch.nn.utils.get_total_norm(self.fp32_params)
+        grads = [p.grad for p in self.fp32_params if p.grad is not None]
+        total_norm = torch.nn.utils.get_total_norm(grads)
         if dist.is_initialized():
             total_norm_sq = total_norm.pow(2)
             dist.all_reduce(total_norm_sq, op=dist.ReduceOp.SUM)
