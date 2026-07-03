@@ -1,4 +1,5 @@
 import torch
+import torch.distributed as dist
 
 from specforge.lr_scheduler import CosineAnnealingWarmupLR
 from specforge.utils import print_on_rank0
@@ -42,8 +43,13 @@ class BF16Optimizer:
                 mp.grad = (
                     p.grad.detach().to(torch.float32) if p.grad is not None else None
                 )
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.fp32_params, self.max_grad_norm)
-        self.last_grad_norm = grad_norm.detach()
+        total_norm = torch.nn.utils.get_total_norm(self.fp32_params)
+        if dist.is_initialized():
+            total_norm_sq = total_norm.pow(2)
+            dist.all_reduce(total_norm_sq, op=dist.ReduceOp.SUM)
+            total_norm = total_norm_sq.sqrt()   
+        torch.nn.utils.clip_grads_with_norm_(self.fp32_params, self.max_grad_norm, total_norm)
+        self.last_grad_norm = total_norm.detach()
         self.optimizer.step()
         self.optimizer.zero_grad()
         self.scheduler.step()

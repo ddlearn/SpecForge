@@ -685,9 +685,6 @@ def main():
             if global_step % args.accumulation_steps == 0:
                 grad_norm = optimizer.step()
                 grad_norm = grad_norm.detach().float()
-                grad_norm = grad_norm.pow(2)
-                dist.all_reduce(grad_norm, op=dist.ReduceOp.SUM)
-                grad_norm = grad_norm.sqrt()
                 grad_norms.append(grad_norm)
                 last_grad_norm = grad_norm.item()
 
