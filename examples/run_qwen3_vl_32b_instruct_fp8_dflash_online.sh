@@ -29,7 +29,7 @@ torchrun \
     --max-length 262144 \
     --chat-template qwen3-instruct \
     --attention-backend $ATTENTION_BACKEND \
-    --flex-kernel-options-json '{"num_stages": 2}' \
+    --flex-kernel-options-json '{"FORCE_USE_FLEX_ATTENTION": true}' \
     --loss-decay-gamma 7.0 \
     --log-interval 50 \
     --save-interval 50000 \
