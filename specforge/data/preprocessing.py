@@ -230,7 +230,16 @@ def preprocess_vlm_conversations(
                     content = []
                     for item in msg["content"]:
                         if item.get("type") == "image_url":
-                            content.append({"type": "image", "image": item["image_url"]["url"]})
+                            # Keep process_vision_info and the model processor on the same pixel bounds.
+                            image_size = processor.image_processor.size
+                            content.append(
+                                {
+                                    "type": "image",
+                                    "image": item["image_url"]["url"],
+                                    "min_pixels": image_size["shortest_edge"],
+                                    "max_pixels": image_size["longest_edge"],
+                                }
+                            )
                         else:
                             content.append(item)
                     converted_messages.append({"role": msg["role"], "content": content})
