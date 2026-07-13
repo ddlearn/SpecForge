@@ -59,6 +59,23 @@ Conversation = List[Dict[str, str]]
 # ==============================
 
 
+def _get_processor_image_patch_size(processor: ImageProcessingMixin) -> int:
+    return getattr(processor.image_processor, "patch_size", 14)
+
+
+def _make_image_content(
+    item: dict,
+    processor: ImageProcessingMixin,
+) -> dict:
+    image_size = processor.image_processor.size
+    return {
+        **item,
+        # Keep process_vision_info and the model processor on the same pixel bounds.
+        "min_pixels": image_size["shortest_edge"],
+        "max_pixels": image_size["longest_edge"],
+    }
+
+
 def _apply_loss_mask_from_chat_template(
     text: str,
     offsets: torch.Tensor,
@@ -230,15 +247,11 @@ def preprocess_vlm_conversations(
                     content = []
                     for item in msg["content"]:
                         if item.get("type") == "image_url":
-                            # Keep process_vision_info and the model processor on the same pixel bounds.
-                            image_size = processor.image_processor.size
                             content.append(
-                                {
-                                    "type": "image",
-                                    "image": item["image_url"]["url"],
-                                    "min_pixels": image_size["shortest_edge"],
-                                    "max_pixels": image_size["longest_edge"],
-                                }
+                                _make_image_content(
+                                    {"type": "image", "image": item["image_url"]["url"]},
+                                    processor,
+                                )
                             )
                         else:
                             content.append(item)
@@ -258,13 +271,17 @@ def preprocess_vlm_conversations(
                     "qwen_vl_utils is required for VLM preprocessing but is not installed. "
                     "Please install it to use VLM features."
                 )
-            image_inputs, video_inputs = process_vision_info(messages)
+            image_inputs, video_inputs = process_vision_info(
+                messages,
+                image_patch_size=_get_processor_image_patch_size(processor),
+            )
             assert image_inputs is not None, "image_inputs must not be None"
 
             encoding = processor(
                 text=[conversation],
                 images=image_inputs,
                 videos=video_inputs,
+                do_resize=False,
                 max_length=max_length,
                 truncation=True,
                 return_tensors="pt",
@@ -350,7 +367,10 @@ def preprocess_vlm_conversations(
             if role == "user":
                 # Insert all images into the first user message
                 if not has_added_images:
-                    content = [{"type": "image", "image": img} for img in images]
+                    content = [
+                        _make_image_content({"type": "image", "image": img}, processor)
+                        for img in images
+                    ]
                     content.append({"type": "text", "text": sentence["content"]})
                     messages.append({"role": role, "content": content})
                     has_added_images = True
@@ -370,13 +390,17 @@ def preprocess_vlm_conversations(
                 "qwen_vl_utils is required for VLM preprocessing but is not installed. "
                 "Please install it to use VLM features."
             )
-        image_inputs, video_inputs = process_vision_info(messages)
+        image_inputs, video_inputs = process_vision_info(
+            messages,
+            image_patch_size=_get_processor_image_patch_size(processor),
+        )
         assert image_inputs is not None, "image_inputs must not be None"
 
         encoding = processor(
             text=[conversation],
             images=image_inputs,
             videos=video_inputs,
+            do_resize=False,
             max_length=max_length,
             truncation=True,
             return_tensors="pt",
