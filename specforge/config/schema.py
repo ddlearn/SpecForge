@@ -55,8 +55,9 @@ class ModelConfig(StrictConfigModel):
     #: transports complete feature records and does not shard target outputs in
     #: the trainer.
     shard_target_output: bool = False
-    #: Input family consumed by the capture provider. Built-in algorithms support
-    #: text only; unsupported modalities fail during application resolution.
+    #: Input family consumed by the capture provider. DFlash additionally owns
+    #: the image-only qwen3_vl online route; unsupported combinations fail during
+    #: application resolution.
     input_modality: str = "text"
     trust_remote_code: bool = False
     #: Enable Liger Qwen3 RMSNorm/SwiGLU kernels for DFlash. Requires ``specforge[liger]``.
@@ -144,6 +145,10 @@ class DataConfig(StrictConfigModel):
     cache_dir: str = "./cache"
     cache_key: Optional[str] = None
     max_prompts: Optional[int] = Field(default=None, ge=0)
+    #: Optional Qwen-VL image bounds.  They are forwarded verbatim to SGLang's
+    #: official mm-process-config and used by SpecForge's matching processor.
+    min_pixels: Optional[int] = Field(default=None, gt=0)
+    max_pixels: Optional[int] = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _exactly_one_source(self):
@@ -158,6 +163,20 @@ class DataConfig(StrictConfigModel):
                 "data.prompts_path (pre-tokenized online data), or "
                 "data.hidden_states_path (offline features)"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_pixel_bounds(self):
+        if (self.min_pixels is None) != (self.max_pixels is None):
+            raise ValueError(
+                "data.min_pixels and data.max_pixels must be set together"
+            )
+        if (
+            self.min_pixels is not None
+            and self.max_pixels is not None
+            and self.max_pixels < self.min_pixels
+        ):
+            raise ValueError("data.max_pixels must be >= data.min_pixels")
         return self
 
 

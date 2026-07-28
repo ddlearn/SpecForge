@@ -192,6 +192,7 @@ def build_model_bundle(cfg: Config, *, algorithm: AlgorithmRegistration) -> Mode
     draft_config, draft_model = _load_draft(cfg, algorithm)
     needs_input_tools = provider.needs_input_tools(cfg, draft_model)
     input_tools = _load_input_tools(cfg, algorithm) if needs_input_tools else None
+    tokenizer = getattr(input_tools, "tokenizer", input_tools)
     target_config = load_target_config(
         cfg.model.target_model_path,
         cache_dir=cfg.model.cache_dir,
@@ -205,7 +206,7 @@ def build_model_bundle(cfg: Config, *, algorithm: AlgorithmRegistration) -> Mode
     )
 
     parts = provider.build_training_model(
-        cfg, draft_model, draft_config, target_config, input_tools
+        cfg, draft_model, draft_config, target_config, tokenizer
     )
     if cfg.mode == "online" and parts.capture_layers is None:
         parts.capture_layers = provider.resolve_capture_layers(

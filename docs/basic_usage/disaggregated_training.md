@@ -318,9 +318,14 @@ with the model, capture method, and auxiliary layer ids matching the draft
 config. DFlash, Domino, and DSpark use the DFlash capture contract; EAGLE3 and
 P-EAGLE use the EAGLE3 capture contract. Capture rejects chunked prefill and
 gives every request attempt a unique radix-cache namespace so cached prefixes
-cannot truncate the captured sequence. Online capture is text-only: VLM
-training, including Qwen2.5-VL, is not supported. Online evaluation is also not
-supported.
+cannot truncate the captured sequence. DFlash additionally supports the
+image-only `qwen3_vl` modality. For an external SGLang server, pass the same
+`--mm-process-config` pixel bounds configured in SpecForge. Validate final
+prompt token IDs and `image_grid_thw` against the final SGLang deployment before
+training; parity is not checked per request at runtime. Online evaluation is
+not supported. Images travel in the SGLang request as data URLs; Mooncake
+stores only `input_ids`, `loss_mask`, and captured `hidden_states`, never image
+bytes, `pixel_values`, or `image_grid_thw` tensors.
 
 The repository's strict e2e gate remains a full local test-stack orchestrator:
 

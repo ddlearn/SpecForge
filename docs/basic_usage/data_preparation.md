@@ -14,8 +14,8 @@ used by the checked-in recipes:
 | General chat | `ultrachat`, `sharegpt`, `eaglechat`, `perfectblend`, `perfectblend-llama3.1-8b-instruct`, `perfectblend-llama3.3-70b-instruct`, `perfectblend-llama4-scout-instruct`, `perfectblend-llama4-maverick-instruct`, `magpie-qwen2.5-pro-1m-v0.1`, `nebius-llama31-8b-infinity-instruct` |
 | Reasoning, math, and code | `opc`, `gsm8k`, `hendrycks_math`, `math_qa`, `codealpaca-20k`, `opencodeinstruct`, `magicoder-evol-instruct`, `sciq`, `camel` |
 
-VLM data preparation and training, including ALLaVA and ShareGPT4V, are not
-supported.
+The preset downloader remains text-only. DFlash online training additionally
+accepts user-supplied Qwen3-VL/Qwen3.5 image JSON/JSONL as described below.
 
 Every successful preset writes the same stable `id` + `conversations` JSONL
 contract. Use `--split-eval` to create a deterministic 95/5 train/eval split;
@@ -48,6 +48,41 @@ python scripts/prepare_data.py \
 Each raw row must contain an `id` and a `conversations` list whose messages use
 ShareGPT's `from` and `value` keys. Custom paths are intentionally limited to
 the `sharegpt` preset.
+
+### Qwen-VL image data
+
+Set `model.input_modality: qwen3_vl` for the image-only DFlash online route.
+The outer dataset remains `id` + `conversations`; messages use `role` and
+`content`. Plain string content is accepted, while image-bearing messages use
+ordered OpenAI content parts so image positions are never inferred:
+
+```json
+{
+  "id": "sample-0",
+  "conversations": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Compare these images: "},
+        {"type": "image_url", "image_url": {"url": "./a.jpg"}},
+        {"type": "text", "text": " and "},
+        {"type": "image_url", "image_url": "https://example.com/b.png"}
+      ]
+    },
+    {"role": "assistant", "content": "The first image ..."}
+  ]
+}
+```
+
+HTTP(S) URLs and filesystem paths visible to both SpecForge and SGLang are
+accepted. Relative paths are resolved against the dataset directory before
+being sent to SGLang. Images are not copied or encoded as base64, so both
+processes must be able to read the same URL or resolved path. Images in
+assistant messages and video/audio parts are rejected. Bad image rows are
+reported and skipped; processor/config failures stop the run. Pre-tokenized
+`data.prompts_path` cannot be used for this route because it cannot preserve
+ordered image sources. Local CPU preprocessing uses
+`data.build_dataset_num_proc` Dataset workers.
 
 
 ## ↩️ Regenerate Datasets

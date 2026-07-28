@@ -49,9 +49,11 @@ data:
   max_length: 4096
 ```
 
-The server capture runtime accepts text input only. VLM training, including
-`qwen2_5_vl`, is not supported. Attention backends are a closed,
-strategy-specific set:
+The built-in VLM route is intentionally narrow: DFlash online capture accepts
+`model.input_modality: qwen3_vl` for Qwen3-VL/Qwen3.5 static images. Video,
+audio, VLM offline features, and other strategies remain unsupported. Custom
+modalities can own prompt preparation and SGLang request fields through a
+`ServerInputAdapter`. Attention backends are a closed, strategy-specific set:
 
 | Strategy | Accepted `training.attention_backend` values |
 | --- | --- |

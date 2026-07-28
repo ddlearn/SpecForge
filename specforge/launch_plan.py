@@ -386,6 +386,22 @@ def _sglang_argv(
     return argv
 
 
+def _sglang_mm_argv(cfg: Config) -> list[str]:
+    """Return the image processor config shared with local Qwen-VL prep."""
+
+    if cfg.model.input_modality != "qwen3_vl" or cfg.data.min_pixels is None:
+        return []
+    payload = {
+        "image": {
+            "size": {
+                "shortest_edge": cfg.data.min_pixels,
+                "longest_edge": cfg.data.max_pixels,
+            }
+        }
+    }
+    return ["--mm-process-config", json.dumps(payload, separators=(",", ":"))]
+
+
 def _managed_local_services(
     cfg: Config,
     *,
@@ -478,6 +494,7 @@ def _managed_local_services(
                 },
             )
         )
+        argv.extend(_sglang_mm_argv(cfg))
         service_env = {
             **shared_env,
             "CUDA_VISIBLE_DEVICES": ",".join(server.cuda_visible_devices),

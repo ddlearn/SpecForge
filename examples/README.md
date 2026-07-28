@@ -45,9 +45,10 @@ disaggregated EAGLE3 requires one explicit shared `model.vocab_mapping_path`.
 
 Online training always uses an external or managed SGLang capture server and
 the disaggregated producer/consumer data plane. Colocated online target loading
-and the HF/custom online backends are intentionally unsupported. Online capture
-is text-only: VLM training, including Qwen2.5-VL, is not supported. Online
-evaluation is also not supported.
+and the HF/custom online backends are intentionally unsupported. DFlash online
+capture additionally supports the image-only `qwen3_vl` modality for
+Qwen3-VL/Qwen3.5; the checked-in recipes remain text examples. Online
+evaluation is not supported.
 
 The same CLI owns offline DP, EAGLE3 offline USP, and managed capture-server
 topology. Trainer `tp_size` remains 1; target TP belongs to SGLang capture

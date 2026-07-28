@@ -130,6 +130,12 @@ def needs_input_tools(config, draft_model):
     return dflash_needs_input_tools(config, draft_model)
 
 
+def build_qwen3_vl_input_adapter(_config):
+    from specforge.data.qwen3_vl import Qwen3VLServerInputAdapter
+
+    return Qwen3VLServerInputAdapter()
+
+
 def algorithm_spec() -> AlgorithmSpec:
     ready = {"input_ids", "loss_mask", "hidden_states"}
     return AlgorithmSpec(
@@ -153,6 +159,11 @@ def algorithm_spec() -> AlgorithmSpec:
             FeatureContract(
                 mode=FeatureMode.STREAMING,
                 modality="text",
+                required_tensors=ready,
+            ),
+            FeatureContract(
+                mode=FeatureMode.STREAMING,
+                modality="qwen3_vl",
                 required_tensors=ready,
             ),
         ),
@@ -223,6 +234,21 @@ def algorithm_providers() -> AlgorithmProviders:
                     ),
                 ),
                 build_collator=collator,
+            ),
+            ServerStreamingProvider(
+                modality="qwen3_vl",
+                capture_method="dflash",
+                target_representation=None,
+                layout=ServerCaptureLayout(
+                    aux_feature="hidden_states",
+                    last_hidden_feature=None,
+                    passthrough=(
+                        ("input_ids", "input_ids", ()),
+                        ("loss_mask", "loss_mask", ()),
+                    ),
+                ),
+                build_collator=collator,
+                build_input_adapter=build_qwen3_vl_input_adapter,
             ),
         ),
     )

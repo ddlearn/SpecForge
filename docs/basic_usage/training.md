@@ -242,8 +242,9 @@ The unified runtime supports text training in these combinations:
 Unsupported combinations fail explicitly during config validation or run
 assembly. In particular:
 
-- VLM training, including Qwen2.5-VL, is not supported. The unified runtime
-  currently accepts text inputs only;
+- VLM support is limited to DFlash online capture with
+  `model.input_modality: qwen3_vl` for Qwen3-VL/Qwen3.5 static images. Other
+  VLM strategies, video/audio, and VLM offline training are unsupported;
 - online evaluation is not supported. Evaluation requires precomputed offline
   features through `data.eval_hidden_states_path`;
 - attention backends are strategy-specific: EAGLE3 accepts `sdpa`,

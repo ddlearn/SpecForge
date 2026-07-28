@@ -528,8 +528,8 @@ class ServerStreamingProvider:
     """Algorithm adapter for externally captured streaming features.
 
     ``build_input_adapter`` is deliberately modality-neutral. Text providers
-    can leave it unset; the current runtime does not support VLM registration
-    or media requests.
+    can leave it unset; media providers own prompt preparation and request
+    fields through this port.
     """
 
     modality: str

@@ -36,7 +36,8 @@ The filename is the index: `*-online.yaml` performs SGLang server capture while
 training, `*-offline.yaml` consumes precomputed features, and
 `*-disaggregated.yaml` highlights a producer/consumer topology. Every online
 recipe is disaggregated even when its historical filename only says `online`.
-VLM training is not supported, so the catalog contains text-only recipes.
+The catalog contains text recipes; DFlash users can opt into the image-only
+Qwen3-VL/Qwen3.5 route with `model.input_modality: qwen3_vl`.
 
 The `qwen3-8b-dflash-1server-dp7-disaggregated.yaml`,
 `qwen3-8b-domino-1server-dp7-disaggregated.yaml`,
@@ -143,7 +144,7 @@ should make their training strategy and topology explicit.
 | `model.draft_num_hidden_layers` | `null` | Positive fresh-architecture override where the strategy permits it. EAGLE3 remains one layer; P-EAGLE and DFlash may override their generated defaults. |
 | `model.draft_block_size` | `null` | Positive DFlash block-size override; generated DFlash configs default to 16. |
 | `model.target_backend` | `sglang` | `sglang` is the only accepted value; retired `hf`/`custom` names fail at config load. Offline feature consumers do not instantiate a target inference backend. |
-| `model.input_modality` | `text` | The provider modality. The unified runtime supports text only; VLM modalities such as `qwen2_5_vl` are rejected. |
+| `model.input_modality` | `text` | Provider modality. `qwen3_vl` selects DFlash online Qwen3-VL/Qwen3.5 static-image preparation; other VLM combinations are rejected. |
 | `model.shard_target_output` | `false` | Retained for config migration; leave it false on the server-only online path. |
 | `model.trust_remote_code` | `false` | Enable only for model repositories that require custom loading code. |
 | `model.embedding_key` | `model.embed_tokens.weight` | Target checkpoint key copied into or used by the draft embedding. |
@@ -197,6 +198,8 @@ Exactly one of the first three fields must be non-empty:
 | `data.cache_dir` | `./cache` | Prepared dataset and derived vocabulary-mapping cache. |
 | `data.cache_key` | `null` | Optional explicit namespace when multiple preparations share the same source. |
 | `data.max_prompts` | `null` | Optional non-negative prompt cap, useful for smoke tests. |
+| `data.min_pixels` | `null` | Optional Qwen-VL minimum image pixels. Set it together with `data.max_pixels`; managed SGLang receives the matching `--mm-process-config`. |
+| `data.max_pixels` | `null` | Optional Qwen-VL maximum image pixels; must be at least `data.min_pixels`. |
 
 Offline evaluation uses `eval_hidden_states_path`; configure it together with
 `training.eval_interval`. Online evaluation is unsupported, and setting
@@ -409,8 +412,8 @@ unless tuning throughput or memory pressure.
   `sp_ulysses_size * sp_ring_size > 1`. Non-USP runs keep both SP sizes at 1.
 - P-EAGLE reuses the EAGLE3 server feature schema, uses `flex_attention`, and
   requires batch size 1.
-- VLM training, including Qwen2.5-VL, is not supported. Online capture accepts
-  text inputs only.
+- VLM support is limited to DFlash online `qwen3_vl` static images. Other
+  strategies, video/audio, and VLM offline training are unsupported.
 - `training.compact_teacher` is offline text EAGLE3 only.
 - Online evaluation is not supported. Offline `data.eval_hidden_states_path`
   and `training.eval_interval` must be configured together.
