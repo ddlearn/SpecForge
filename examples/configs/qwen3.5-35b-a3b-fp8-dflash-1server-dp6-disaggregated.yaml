@@ -26,7 +26,6 @@ data:
 training:
   strategy: "dflash"
   num_epochs: 1
-  max_steps: 20
   batch_size: 1
   accumulation_steps: 1
   learning_rate: 0.0006
@@ -36,8 +35,8 @@ training:
   num_anchors: 128
   objective_chunk_blocks: 64
   loss_decay_gamma: 7
-  save_interval: 0
-  log_interval: 1
+  save_interval: 10000
+  log_interval: 50
   dist_timeout: 60
   seed: 42
 

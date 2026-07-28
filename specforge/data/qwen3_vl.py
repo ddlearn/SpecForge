@@ -21,6 +21,7 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import unquote, urlparse
 
 from specforge.config import Config
+from specforge.runtime.contracts import PromptTask
 
 from .prompt_builder import _iter_records
 from .template import TEMPLATE_REGISTRY
@@ -28,7 +29,6 @@ from .template import TEMPLATE_REGISTRY
 logger = logging.getLogger(__name__)
 
 _MAX_REJECT_EXAMPLES = 5
-_PREPARED_CACHE_VERSION = 1
 
 
 def _source_digest(path: str) -> str:
@@ -91,7 +91,7 @@ def _local_image_identities(
     return identities
 
 
-def _prepared_cache_path(
+def _map_cache_path(
     config: Config,
     processor: Any,
     tokenizer: Any,
@@ -100,7 +100,6 @@ def _prepared_cache_path(
     raw_rows: Sequence[tuple[int, Mapping[str, Any]]],
     dataset_dir: Path,
     min_loss_tokens: int,
-    num_proc: int,
 ) -> Path | None:
     cache_dir = getattr(config.data, "cache_dir", None)
     if not cache_dir:
@@ -111,7 +110,6 @@ def _prepared_cache_path(
         image_processor_to_dict() if callable(image_processor_to_dict) else None
     )
     identity = {
-        "version": _PREPARED_CACHE_VERSION,
         "namespace": getattr(config.data, "cache_key", None),
         "source_path": str(Path(source_path).resolve()),
         "source_digest": _source_digest(source_path),
@@ -138,7 +136,6 @@ def _prepared_cache_path(
         "min_pixels": config.data.min_pixels,
         "max_pixels": config.data.max_pixels,
         "min_loss_tokens": min_loss_tokens,
-        "num_proc": num_proc,
     }
     digest = hashlib.sha256(
         json.dumps(
@@ -150,7 +147,7 @@ def _prepared_cache_path(
     ).hexdigest()
     directory = Path(cache_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"qwen3_vl-{digest}"
+    return directory / f"qwen3_vl-{digest}.arrow"
 
 
 class _ProcessorTokenizerProxy:
@@ -168,6 +165,13 @@ class _ProcessorTokenizerProxy:
         return self.tokenizer(*args, **kwargs)
 
     def apply_chat_template(self, messages, **kwargs):
+        processor_kwargs = dict(kwargs.pop("processor_kwargs", None) or {})
+        if "add_special_tokens" in kwargs:
+            processor_kwargs["add_special_tokens"] = kwargs.pop(
+                "add_special_tokens"
+            )
+        if processor_kwargs:
+            kwargs["processor_kwargs"] = processor_kwargs
         self.last_rendered = self.processor.apply_chat_template(messages, **kwargs)
         return self.last_rendered
 
@@ -597,11 +601,6 @@ def _prepare_dataset_row(
         "num_tokens": len(final_ids),
     }
 
-
-def _is_prepared_row(example: Mapping[str, Any]) -> bool:
-    return not bool(example["reject_reason"])
-
-
 class Qwen3VLServerInputAdapter:
     """Server-capture input adapter for Qwen3-VL/Qwen3.5 images."""
 
@@ -669,7 +668,6 @@ class Qwen3VLServerInputAdapter:
                 Features,
                 Sequence as HFSequence,
                 Value,
-                load_from_disk,
             )
         except ImportError as exc:  # pragma: no cover - production dependency
             raise ImportError("Qwen-VL prompt preparation requires datasets") from exc
@@ -678,7 +676,7 @@ class Qwen3VLServerInputAdapter:
         if not raw_rows:
             raise ValueError(f"Qwen-VL dataset {source_path!r} is empty")
         num_proc = min(config.data.build_dataset_num_proc, len(raw_rows))
-        cache_path = _prepared_cache_path(
+        cache_path = _map_cache_path(
             config,
             processor,
             tokenizer,
@@ -686,123 +684,109 @@ class Qwen3VLServerInputAdapter:
             raw_rows=raw_rows,
             dataset_dir=dataset_dir,
             min_loss_tokens=min_loss_tokens,
-            num_proc=num_proc,
         )
         rejected: Counter[str] = Counter()
         examples: list[str] = []
-        cache_hit = cache_path is not None and cache_path.is_dir()
-        if cache_hit:
-            prepared_dataset = load_from_disk(str(cache_path))
-            logger.info("Qwen-VL prepared prompt cache hit: %s", cache_path)
-        else:
-            raw_dataset = Dataset.from_dict(
-                {
-                    "line_number": [line_number for line_number, _ in raw_rows],
-                    # Keep heterogeneous OpenAI content parts opaque to Arrow.
-                    "record_json": [json.dumps(record) for _, record in raw_rows],
-                }
-            )
-            output_features = Features(
-                {
-                    "reject_reason": Value("string"),
-                    "reject_detail": Value("string"),
-                    "task_id": Value("string"),
-                    "input_ids": HFSequence(Value("int64")),
-                    "loss_mask": HFSequence(Value("int64")),
-                    "server_input_ids": HFSequence(Value("int64")),
-                    "image_sources": HFSequence(Value("string")),
-                    "num_tokens": Value("int64"),
-                }
-            )
-            if num_proc > 1:
-                os.environ["TOKENIZERS_PARALLELISM"] = "false"
-            processed_dataset = raw_dataset.map(
-                _prepare_dataset_row,
-                fn_kwargs={
-                    "processor": processor,
-                    "tokenizer": tokenizer,
-                    "dataset_dir": str(dataset_dir),
-                    "chat_template": config.data.chat_template,
-                    "train_only_last_turn": config.data.train_only_last_turn,
-                    "min_pixels": config.data.min_pixels,
-                    "max_pixels": config.data.max_pixels,
-                    "max_length": config.data.max_length,
-                    "min_loss_tokens": min_loss_tokens,
-                },
-                num_proc=num_proc if num_proc > 1 else None,
-                remove_columns=raw_dataset.column_names,
-                features=output_features,
-                load_from_cache_file=False,
-                desc="Preparing Qwen-VL prompts",
-            )
-            for row in processed_dataset:
-                reason = str(row["reject_reason"])
-                if not reason:
-                    continue
+        raw_dataset = Dataset.from_dict(
+            {
+                "line_number": [line_number for line_number, _ in raw_rows],
+                # Keep heterogeneous OpenAI content parts opaque to Arrow.
+                "record_json": [json.dumps(record) for _, record in raw_rows],
+            }
+        )
+        output_features = Features(
+            {
+                "reject_reason": Value("string"),
+                "reject_detail": Value("string"),
+                "task_id": Value("string"),
+                "input_ids": HFSequence(Value("int64")),
+                "loss_mask": HFSequence(Value("int64")),
+                "server_input_ids": HFSequence(Value("int64")),
+                "image_sources": HFSequence(Value("string")),
+                "num_tokens": Value("int64"),
+            }
+        )
+        if num_proc > 1:
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        if cache_path is not None:
+            logger.info("Qwen-VL map cache: %s", cache_path)
+        processed_dataset = raw_dataset.map(
+            _prepare_dataset_row,
+            fn_kwargs={
+                "processor": processor,
+                "tokenizer": tokenizer,
+                "dataset_dir": str(dataset_dir),
+                "chat_template": config.data.chat_template,
+                "train_only_last_turn": config.data.train_only_last_turn,
+                "min_pixels": config.data.min_pixels,
+                "max_pixels": config.data.max_pixels,
+                "max_length": config.data.max_length,
+                "min_loss_tokens": min_loss_tokens,
+            },
+            num_proc=num_proc if num_proc > 1 else None,
+            remove_columns=raw_dataset.column_names,
+            features=output_features,
+            load_from_cache_file=cache_path is not None,
+            cache_file_name=str(cache_path) if cache_path is not None else None,
+            desc="Preparing Qwen-VL prompts",
+        )
+        accepted: list[dict[str, Any]] = []
+        accepted_ids: set[str] = set()
+        for row in processed_dataset:
+            reason = str(row["reject_reason"])
+            if reason:
                 rejected[reason] += 1
                 if len(examples) < _MAX_REJECT_EXAMPLES:
                     examples.append(f"{row['task_id']}: {row['reject_detail']}")
-            prepared_dataset = processed_dataset.filter(
-                _is_prepared_row,
-                num_proc=num_proc if num_proc > 1 else None,
-                desc="Filtering Qwen-VL prompts",
-            ).remove_columns(["reject_reason", "reject_detail"])
-
-        if not len(prepared_dataset):
-            raise ValueError(
-                "Qwen-VL prompt preparation rejected every sample; "
-                f"reasons={dict(sorted(rejected.items()))}, examples={examples}"
-            )
-        accepted_ids: set[str] = set()
-        for row in prepared_dataset:
+                continue
             record_id = str(row["task_id"])
             if record_id in accepted_ids:
                 raise ValueError(f"duplicate Qwen-VL record id {record_id!r}")
             accepted_ids.add(record_id)
-
-        if not cache_hit and cache_path is not None:
-            prepared_dataset.save_to_disk(str(cache_path))
-            logger.info("Qwen-VL prepared prompt cache saved: %s", cache_path)
-        if limit is not None and limit < len(prepared_dataset):
-            prepared_dataset = prepared_dataset.select(range(limit))
-        accepted = [
-            {
-                "task_id": str(row["task_id"]),
-                "source_id": source_path,
-                "max_length": config.data.max_length,
-                "chat_template": config.data.chat_template,
-                "payload": {
-                    "input_ids": [int(token) for token in row["input_ids"]],
-                    "loss_mask": [int(token) for token in row["loss_mask"]],
-                    "server_input_ids": [
-                        int(token) for token in row["server_input_ids"]
-                    ],
-                    "image_sources": [
-                        str(source) for source in row["image_sources"]
-                    ],
-                },
-                "metadata": {
-                    "num_tokens": int(row["num_tokens"]),
-                    "tokenizer_version": str(config.model.target_model_path),
-                },
-            }
-            for row in prepared_dataset
-        ]
-
-        if cache_hit:
-            logger.info("Qwen-VL prompt cache supplied %d samples", len(accepted))
-        else:
-            logger.info(
-                "Qwen-VL prompt preparation accepted=%d rejected=%d "
-                "reasons=%s examples=%s",
-                len(accepted),
-                sum(rejected.values()),
-                dict(sorted(rejected.items())),
-                examples,
+            if limit is not None and len(accepted) >= limit:
+                continue
+            accepted.append(
+                {
+                    "task_id": record_id,
+                    "source_id": source_path,
+                    "max_length": config.data.max_length,
+                    "chat_template": config.data.chat_template,
+                    "payload": {
+                        "input_ids": [int(token) for token in row["input_ids"]],
+                        "loss_mask": [int(token) for token in row["loss_mask"]],
+                        "server_input_ids": [
+                            int(token) for token in row["server_input_ids"]
+                        ],
+                        "image_sources": [
+                            str(source) for source in row["image_sources"]
+                        ],
+                    },
+                    "metadata": {
+                        "num_tokens": int(row["num_tokens"]),
+                        "tokenizer_version": str(config.model.target_model_path),
+                    },
+                }
             )
+
+        if not accepted_ids:
+            raise ValueError(
+                "Qwen-VL prompt preparation rejected every sample; "
+                f"reasons={dict(sorted(rejected.items()))}, examples={examples}"
+            )
+
+        logger.info(
+            "Qwen-VL prompt preparation accepted=%d rejected=%d "
+            "reasons=%s examples=%s",
+            len(accepted),
+            sum(rejected.values()),
+            dict(sorted(rejected.items())),
+            examples,
+        )
         return accepted
 
-    def build_request_inputs(self, tasks) -> dict[str, Any]:
+    def build_request_inputs(
+        self, tasks: Sequence[PromptTask]
+    ) -> dict[str, Any]:
         input_ids: list[list[int]] = []
         image_data: list[list[str] | None] = []
         for task in tasks:
@@ -811,9 +795,9 @@ class Qwen3VLServerInputAdapter:
                 raise ValueError(
                     f"task {task.task_id}: Qwen-VL payload omits server_input_ids"
                 )
-            input_ids.append([int(token) for token in server_ids])
+            input_ids.append(list(server_ids))
             sources = list(task.payload.get("image_sources") or [])
-            image_data.append([str(source) for source in sources] or None)
+            image_data.append(sources or None)
         return {"input_ids": input_ids, "image_data": image_data}
 
 
