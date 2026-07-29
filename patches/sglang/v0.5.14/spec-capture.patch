@@ -322,6 +322,21 @@ index 1cff5c983..a5935fa3c 100644
          # Apply the rank zero filter to logger
          if server_args.show_time_cost:
              enable_show_time_cost()
+diff --git a/python/sglang/srt/models/qwen3_vl.py b/python/sglang/srt/models/qwen3_vl.py
+index 76d6922ac..dc1759dd3 100644
+--- a/python/sglang/srt/models/qwen3_vl.py
++++ b/python/sglang/srt/models/qwen3_vl.py
+@@ -1305,8 +1305,8 @@ class Qwen3VLForConditionalGeneration(nn.Module):
+             raise ValueError(
+                 "DFLASH requires explicit layer_ids for aux hidden capture."
+             )
+         self.capture_aux_hidden_states = True
+-        self.model.set_dflash_layers_to_capture([val + 1 for val in layer_ids])
++        self.model.layers_to_capture = [val + 1 for val in layer_ids]
+-
++
+     def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
+         stacked_params_mapping = [
 diff --git a/python/sglang/srt/server_args.py b/python/sglang/srt/server_args.py
 index c7162c16d..d515b3c69 100644
 --- a/python/sglang/srt/server_args.py
