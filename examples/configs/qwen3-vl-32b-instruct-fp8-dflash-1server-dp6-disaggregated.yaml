@@ -16,7 +16,7 @@ data:
   # Replace this file with your image-only OpenAI-style conversation dataset.
   # Image URLs or absolute paths must be reachable from both SpecForge and SGLang.
   train_data_path: "./cache/dataset/qwen3-vl-32b-instruct-vlm-smoke.jsonl"
-  max_length: 262144
+  max_length: 262137
   chat_template: "qwen3-instruct"
   build_dataset_num_proc: 8
   cache_dir: "./cache"
