@@ -393,10 +393,8 @@ def _sglang_mm_argv(cfg: Config) -> list[str]:
         return []
     payload = {
         "image": {
-            "size": {
-                "shortest_edge": cfg.data.min_pixels,
-                "longest_edge": cfg.data.max_pixels,
-            }
+            "min_pixels": cfg.data.min_pixels,
+            "max_pixels": cfg.data.max_pixels,
         }
     }
     return ["--mm-process-config", json.dumps(payload, separators=(",", ":"))]

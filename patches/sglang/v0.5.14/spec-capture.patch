@@ -37,6 +37,27 @@ index a99d25267..f5d0b35e7 100644
                  # FIXME: These fields are not logits-related but are passed through here as a
                  # workaround since ForwardBatch is local to forward_batch_generation().
                  # They should be moved to GenerationBatchResult to keep this class clean.
+diff --git a/python/sglang/srt/multimodal/processors/base_processor.py b/python/sglang/srt/multimodal/processors/base_processor.py
+index 52951b226..c4454bd16 100644
+--- a/python/sglang/srt/multimodal/processors/base_processor.py
++++ b/python/sglang/srt/multimodal/processors/base_processor.py
+@@ -1249,7 +1249,14 @@ class BaseMultimodalProcessor(ABC):
+         """
+         assert images is not None
+-        image_sizes = [(image.height, image.width) for image in images]
++        image_sizes = []
++        for image in images:
++            if isinstance(image, torch.Tensor):
++                height, width = image.shape[-2:]
++            else:
++                height, width = image.height, image.width
++            image_sizes.append((height, width))
+         num_image_tokens = self._processor._get_num_multimodal_tokens(
+-            image_sizes=image_sizes
++            image_sizes=image_sizes,
++            **self.image_config,
+         ).num_image_tokens
+         return [int(count) for count in num_image_tokens]
 diff --git a/python/sglang/srt/managers/detokenizer_manager.py b/python/sglang/srt/managers/detokenizer_manager.py
 index b05334dea..2853c8231 100644
 --- a/python/sglang/srt/managers/detokenizer_manager.py
