@@ -279,7 +279,18 @@ diff --git a/python/sglang/srt/managers/tokenizer_manager.py b/python/sglang/srt
 index bf932611a..f0e821ec4 100644
 --- a/python/sglang/srt/managers/tokenizer_manager.py
 +++ b/python/sglang/srt/managers/tokenizer_manager.py
-@@ -1172,6 +1172,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+@@ -618,7 +618,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+                     if obj.return_prompt_token_ids:
+                         state.prompt_token_ids = list(tokenized_obj.input_ids)
+                     self._send_one_request(tokenized_obj)
+-                    async for response in self._wait_one_response(obj, request):
++                    async for response in self._wait_one_response(
++                        obj, state, request
++                    ):
+                         yield response
+                 else:
+                     async for response in self._handle_batch_request(obj, request):
+@@ -1172,6 +1174,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                  multi_item_delimiter_indices=obj.multi_item_delimiter_indices,
                  mm_data_mooncake=obj.mm_data_mooncake,
                  encoder_urls=obj.encoder_urls,
@@ -287,7 +298,71 @@ index bf932611a..f0e821ec4 100644
              )
          elif isinstance(obj, EmbeddingReqInput):
              # Resolve unresolved embed overrides now that input_ids are available
-@@ -1922,6 +1923,10 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+@@ -1425,10 +1428,14 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+     async def _wait_one_response(
+         self,
+         obj: Union[GenerateReqInput, EmbeddingReqInput],
++        state: ReqState,
+         request: Optional[fastapi.Request] = None,
+     ):
+-        """Wait for the response of one request."""
+-        state = self.rid_to_state[obj.rid]
++        """Wait using the request state retained before scheduler dispatch.
++
++        Finished outputs remove ``rid_to_state[rid]`` before waking this async
++        generator, so looking the state up lazily here races with completion.
++        """
+         # Not all request types have `stream` (e.g., EmbeddingReqInput). Default to non-streaming.
+         is_stream = getattr(obj, "stream", False)
+         while True:
+@@ -1552,7 +1559,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+                     state = self.rid_to_state[tmp_obj.rid]
+                     if tmp_obj.return_prompt_token_ids:
+                         state.prompt_token_ids = list(tokenized_objs[i].input_ids)
+-                    generators.append(self._wait_one_response(tmp_obj, request))
++                    generators.append(
++                        self._wait_one_response(tmp_obj, state, request)
++                    )
+                     rids.append(tmp_obj.rid)
+             else:
+                 # Sequential tokenization and processing
+@@ -1568,7 +1577,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+                         if tmp_obj.return_prompt_token_ids:
+                             state.prompt_token_ids = list(tokenized_obj.input_ids)
+                         self._send_one_request(tokenized_obj)
+-                        generators.append(self._wait_one_response(tmp_obj, request))
++                        generators.append(
++                            self._wait_one_response(tmp_obj, state, request)
++                        )
+                         rids.append(tmp_obj.rid)
+         else:
+             # FIXME: When using batch and parallel_sample_num together, the perf is not optimal.
+@@ -1598,12 +1609,13 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+                 tokenized_obj.rid = tmp_obj.regenerate_rid()
+                 tokenized_obj.sampling_params = copy.copy(tokenized_obj.sampling_params)
+                 tokenized_obj.sampling_params.max_new_tokens = 0
+                 tokenized_obj.stream = False
+                 self._init_req_state(tmp_obj)
++                state = self.rid_to_state[tmp_obj.rid]
+                 self._send_one_request(tokenized_obj)
+-                await self._wait_one_response(tmp_obj, request).__anext__()
+-
++                await self._wait_one_response(tmp_obj, state, request).__anext__()
++
+             # Expand requests, assign new rids for them, and send them
+             for i in range(batch_size):
+                 for _ in range(obj.parallel_sample_num):
+                     tmp_obj = copy.copy(objs[i])
+@@ -1621,5 +1633,7 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
+                     if tmp_obj.return_prompt_token_ids:
+                         state.prompt_token_ids = list(tokenized_objs[i].input_ids)
+                     self._send_one_request(tokenized_obj)
+-                    generators.append(self._wait_one_response(tmp_obj, request))
++                    generators.append(
++                        self._wait_one_response(tmp_obj, state, request)
++                    )
+                     rids.append(tmp_obj.rid)
+@@ -1922,6 +1936,10 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
                  hidden_states = recv_obj.output_hidden_states[i]
                  if hidden_states is not None:
                      meta_info["hidden_states"] = hidden_states
