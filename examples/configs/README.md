@@ -43,7 +43,8 @@ The `qwen3-8b-dflash-1server-dp7-disaggregated.yaml`,
 `qwen3-8b-domino-1server-dp7-disaggregated.yaml`,
 `qwen3-8b-domino-multiserver-disaggregated.yaml`,
 `qwen3.6-27b-dflash-1server-dp2-disaggregated.yaml`, and
-`qwen3.6-27b-dflash-multiserver-disaggregated.yaml` recipes are opt-in local
+`qwen3.6-27b-dflash-multiserver-disaggregated.yaml`, and
+`qwen3.6-27b-dspark-disaggregated.yaml` recipes are opt-in local
 full-stack examples. Their typed `managed_local` blocks own Mooncake, one or
 two patched SGLang capture servers, and the trainer GPU allocation; the same
 `specforge train -c ...` command starts and cleans up each complete stack.
@@ -147,6 +148,7 @@ should make their training strategy and topology explicit.
 | `model.input_modality` | `text` | Provider modality. `qwen3_vl` selects DFlash online Qwen3-VL/Qwen3.5 static-image preparation; other VLM combinations are rejected. |
 | `model.shard_target_output` | `false` | Retained for config migration; leave it false on the server-only online path. |
 | `model.trust_remote_code` | `false` | Enable only for model repositories that require custom loading code. |
+| `model.use_liger_kernel` | `false` | Enable Liger Qwen3 RMSNorm/SwiGLU kernels for DFlash training. Requires the `specforge[liger]` extra. |
 | `model.embedding_key` | `model.embed_tokens.weight` | Target checkpoint key copied into or used by the draft embedding. |
 | `model.lm_head_key` | `lm_head.weight` | Target checkpoint key used for the frozen output head. |
 | `model.vocab_mapping_path` | `""` | Target-to-draft vocabulary mapping. EAGLE3 disaggregated runs require an explicit shared file. |
