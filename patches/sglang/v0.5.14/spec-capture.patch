@@ -401,13 +401,18 @@ diff --git a/python/sglang/srt/models/qwen3_vl.py b/python/sglang/srt/models/qwe
 index 76d6922ac..dc1759dd3 100644
 --- a/python/sglang/srt/models/qwen3_vl.py
 +++ b/python/sglang/srt/models/qwen3_vl.py
-@@ -1305,8 +1305,8 @@ class Qwen3VLForConditionalGeneration(nn.Module):
+@@ -1305,8 +1305,13 @@ class Qwen3VLForConditionalGeneration(nn.Module):
              raise ValueError(
                  "DFLASH requires explicit layer_ids for aux hidden capture."
              )
          self.capture_aux_hidden_states = True
 -        self.model.set_dflash_layers_to_capture([val + 1 for val in layer_ids])
-+        self.model.layers_to_capture = [val + 1 for val in layer_ids]
++        capture_layers = [val + 1 for val in layer_ids]
++        setter = getattr(self.model, "set_dflash_layers_to_capture", None)
++        if callable(setter):
++            setter(capture_layers)
++        else:
++            self.model.layers_to_capture = capture_layers
 -
 +
      def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
