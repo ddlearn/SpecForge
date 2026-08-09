@@ -172,9 +172,7 @@ class DataConfig(StrictConfigModel):
     @model_validator(mode="after")
     def _validate_pixel_bounds(self):
         if (self.min_pixels is None) != (self.max_pixels is None):
-            raise ValueError(
-                "data.min_pixels and data.max_pixels must be set together"
-            )
+            raise ValueError("data.min_pixels and data.max_pixels must be set together")
         if (
             self.min_pixels is not None
             and self.max_pixels is not None

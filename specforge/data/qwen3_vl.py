@@ -113,9 +113,7 @@ def _map_cache_path(
         "namespace": getattr(config.data, "cache_key", None),
         "source_path": str(Path(source_path).resolve()),
         "source_digest": _source_digest(source_path),
-        "local_images": _local_image_identities(
-            raw_rows, dataset_dir=dataset_dir
-        ),
+        "local_images": _local_image_identities(raw_rows, dataset_dir=dataset_dir),
         "target_model": config.model.target_model_path,
         "processor_type": (
             f"{type(processor).__module__}.{type(processor).__qualname__}"
@@ -167,9 +165,7 @@ class _ProcessorTokenizerProxy:
     def apply_chat_template(self, messages, **kwargs):
         processor_kwargs = dict(kwargs.pop("processor_kwargs", None) or {})
         if "add_special_tokens" in kwargs:
-            processor_kwargs["add_special_tokens"] = kwargs.pop(
-                "add_special_tokens"
-            )
+            processor_kwargs["add_special_tokens"] = kwargs.pop("add_special_tokens")
         if processor_kwargs:
             kwargs["processor_kwargs"] = processor_kwargs
         self.last_rendered = self.processor.apply_chat_template(messages, **kwargs)
@@ -285,9 +281,13 @@ def _load_shared_image(
             response = requests.get(source, timeout=30)
             response.raise_for_status()
         except requests.RequestException as exc:
-            return source, None, (
-                "image_read_error",
-                f"failed to download {_safe_source_label(source)!r}: {exc}",
+            return (
+                source,
+                None,
+                (
+                    "image_read_error",
+                    f"failed to download {_safe_source_label(source)!r}: {exc}",
+                ),
             )
         request_source = source
         data = response.content
@@ -310,9 +310,13 @@ def _load_shared_image(
         try:
             data = Path(request_source).read_bytes()
         except OSError as exc:
-            return request_source, None, (
-                "image_read_error",
-                f"failed to read shared image {request_source!r}: {exc}",
+            return (
+                request_source,
+                None,
+                (
+                    "image_read_error",
+                    f"failed to read shared image {request_source!r}: {exc}",
+                ),
             )
     try:
         from PIL import Image
@@ -320,9 +324,13 @@ def _load_shared_image(
         image = Image.open(io.BytesIO(data)).convert("RGB")
         image.load()
     except (OSError, ValueError) as exc:
-        return request_source, None, (
-            "image_decode_error",
-            f"image {_safe_source_label(source)!r} cannot be decoded: {exc}",
+        return (
+            request_source,
+            None,
+            (
+                "image_decode_error",
+                f"image {_safe_source_label(source)!r} cannot be decoded: {exc}",
+            ),
         )
     return request_source, image, None
 
@@ -336,9 +344,7 @@ def _part_image_source(part: Mapping[str, Any]) -> str:
     return image_url
 
 
-def _normalize_messages(
-    conversations: Any, *, dataset_dir: Path
-) -> tuple[
+def _normalize_messages(conversations: Any, *, dataset_dir: Path) -> tuple[
     list[dict[str, Any]],
     list[str],
     list[Any],
@@ -394,15 +400,11 @@ def _normalize_messages(
                     return [], [], [], image_failure
                 image_sources.append(request_source)
                 images.append(image)
-                normalized_parts.append(
-                    {"type": "image", "image": request_source}
-                )
+                normalized_parts.append({"type": "image", "image": request_source})
                 continue
             if part_type in ("video_url", "input_audio", "audio"):
                 raise ValueError(f"MVP supports images only, got {part_type!r}")
-            raise ValueError(
-                f"unsupported content part {part_type!r}"
-            )
+            raise ValueError(f"unsupported content part {part_type!r}")
         messages.append({"role": role, "content": normalized_parts})
     return messages, image_sources, images, None
 
@@ -535,9 +537,7 @@ def _prepare_dataset_row(
         )
         if image_failure is not None:
             reason, detail = image_failure
-            return _filtered_dataset_row(
-                record_id, reason=reason, detail=detail
-            )
+            return _filtered_dataset_row(record_id, reason=reason, detail=detail)
         rendered, base_ids, base_mask = _parse_base_tokens(
             processor,
             tokenizer,
@@ -601,6 +601,7 @@ def _prepare_dataset_row(
         "num_tokens": len(final_ids),
     }
 
+
 class Qwen3VLServerInputAdapter:
     """Server-capture input adapter for Qwen3-VL/Qwen3.5 images."""
 
@@ -657,18 +658,13 @@ class Qwen3VLServerInputAdapter:
             )
         dataset_dir = Path(source_path).resolve().parent
         limit = (
-            None
-            if config.data.max_prompts in (None, 0)
-            else config.data.max_prompts
+            None if config.data.max_prompts in (None, 0) else config.data.max_prompts
         )
 
         try:
-            from datasets import (
-                Dataset,
-                Features,
-                Sequence as HFSequence,
-                Value,
-            )
+            from datasets import Dataset, Features
+            from datasets import Sequence as HFSequence
+            from datasets import Value
         except ImportError as exc:  # pragma: no cover - production dependency
             raise ImportError("Qwen-VL prompt preparation requires datasets") from exc
 
@@ -784,9 +780,7 @@ class Qwen3VLServerInputAdapter:
         )
         return accepted
 
-    def build_request_inputs(
-        self, tasks: Sequence[PromptTask]
-    ) -> dict[str, Any]:
+    def build_request_inputs(self, tasks: Sequence[PromptTask]) -> dict[str, Any]:
         input_ids: list[list[int]] = []
         image_data: list[list[str] | None] = []
         for task in tasks:

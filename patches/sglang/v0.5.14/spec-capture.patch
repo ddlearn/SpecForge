@@ -52,7 +52,7 @@ index a99d252..bde8a84 100644
                  # workaround since ForwardBatch is local to forward_batch_generation().
                  # They should be moved to GenerationBatchResult to keep this class clean.
 diff --git a/python/sglang/srt/multimodal/processors/base_processor.py b/python/sglang/srt/multimodal/processors/base_processor.py
-index 52951b226..c4454bd16 100644
+index 52951b2..48dbc8e 100644
 --- a/python/sglang/srt/multimodal/processors/base_processor.py
 +++ b/python/sglang/srt/multimodal/processors/base_processor.py
 @@ -1249,7 +1249,14 @@ class BaseMultimodalProcessor(ABC):
@@ -575,7 +575,7 @@ index f95c59f..6c51abc 100644
              indexer_topk=self.indexer_topk,
              customized_info=self.customized_info,
 diff --git a/python/sglang/srt/managers/tokenizer_manager.py b/python/sglang/srt/managers/tokenizer_manager.py
-index bf93261..f0e821e 100644
+index bf93261..9adab10 100644
 --- a/python/sglang/srt/managers/tokenizer_manager.py
 +++ b/python/sglang/srt/managers/tokenizer_manager.py
 @@ -618,7 +618,9 @@ class TokenizerManager(TokenizerControlMixin, TokenizerManagerScoreMixin):
@@ -741,7 +741,7 @@ index 1cff5c9..5309965 100644
          if server_args.show_time_cost:
              enable_show_time_cost()
 diff --git a/python/sglang/srt/models/qwen3_vl.py b/python/sglang/srt/models/qwen3_vl.py
-index 76d6922ac..dc1759dd3 100644
+index 76d6922..c318384 100644
 --- a/python/sglang/srt/models/qwen3_vl.py
 +++ b/python/sglang/srt/models/qwen3_vl.py
 @@ -1305,8 +1305,13 @@ class Qwen3VLForConditionalGeneration(nn.Module):
