@@ -158,6 +158,7 @@ class UnifiedFeatureReachabilityTest(unittest.TestCase):
         dpace = configs["qwen3-8b-dpace-online.yaml"]
         self.assertEqual(dpace.training.strategy, "dflash")
         self.assertEqual(dpace.training.loss_type, "dpace")
+        self.assertEqual(dpace.training.loss_denominator, "batch_size")
         self.assertEqual(dpace.tracking.report_to, "wandb")
         self.assertEqual(dpace.tracking.wandb_project, "dpace-qwen3-8b")
 

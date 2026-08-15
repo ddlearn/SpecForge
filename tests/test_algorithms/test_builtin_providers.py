@@ -186,6 +186,7 @@ class BuiltinProviderContractTest(unittest.TestCase):
             loss_decay_gamma=2.0,
             loss_type="dpace",
             dpace_alpha=0.4,
+            loss_denominator="valid_token_count",
             shift_label=True,
             dspark_ce_loss_alpha=0.1,
             dspark_l1_loss_alpha=0.8,
@@ -228,6 +229,7 @@ class BuiltinProviderContractTest(unittest.TestCase):
                 "dflash_num_anchors",
                 "dflash_loss_type",
                 "dflash_dpace_alpha",
+                "dflash_loss_denominator",
             },
             "domino": {
                 "domino_block_size",

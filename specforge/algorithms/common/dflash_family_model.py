@@ -32,6 +32,11 @@ _VALID_LOSS_TYPES = {
     "dpace-continuation-value-only",
 }
 _DPACE_LOSS_TYPES = _VALID_LOSS_TYPES - {"dflash"}
+_LOSS_DENOMINATORS = {
+    "batch_size",
+    "valid_token_count",
+    "loss_weight_sum",
+}
 
 
 def compute_accept_len(
@@ -166,6 +171,7 @@ class OnlineDFlashModel(nn.Module):
         objective_chunk_blocks: int = 128,
         loss_type: str = "dflash",
         dpace_alpha: float = 0.5,
+        loss_denominator: Optional[str] = None,
     ):
         super().__init__()
         if loss_type not in _VALID_LOSS_TYPES:
@@ -174,6 +180,19 @@ class OnlineDFlashModel(nn.Module):
             )
         if not 0.0 <= dpace_alpha <= 1.0:
             raise ValueError(f"dpace_alpha must be in [0, 1], got {dpace_alpha}")
+        if loss_denominator is None:
+            loss_denominator = (
+                "loss_weight_sum" if loss_type == "dflash" else "batch_size"
+            )
+        if loss_denominator not in _LOSS_DENOMINATORS:
+            raise ValueError(
+                f"loss_denominator={loss_denominator!r}; must be one of "
+                f"{sorted(_LOSS_DENOMINATORS)}"
+            )
+        if loss_type == "dflash" and loss_denominator == "batch_size":
+            raise ValueError(
+                "loss_denominator='batch_size' is only valid for D-PACE losses"
+            )
         if objective_chunk_blocks < 0:
             raise ValueError("objective_chunk_blocks must be >= 0")
 
@@ -188,6 +207,7 @@ class OnlineDFlashModel(nn.Module):
         self.objective_chunk_blocks = int(objective_chunk_blocks)
         self.loss_type = loss_type
         self.dpace_alpha = dpace_alpha
+        self.loss_denominator = loss_denominator
 
         self._cached_block_mask: Optional[BlockMask] = None
         self._cached_seq_len: Optional[int] = None
@@ -381,8 +401,6 @@ class OnlineDFlashModel(nn.Module):
                     -(positions - 1).clamp(min=0).float() / self.loss_decay_gamma
                 )
                 loss_weights = loss_weights * decay_weights
-            loss_num = (neg_log_q * loss_weights).sum()
-            loss_den = loss_weights.sum()
         elif self.loss_type in _DPACE_LOSS_TYPES:
             with torch.no_grad():
                 target_probability = torch.exp(-neg_log_q)
@@ -392,10 +410,19 @@ class OnlineDFlashModel(nn.Module):
                     weight_mask > 0,
                     self.loss_type,
                 )
-            loss_num = (neg_log_q * weight_mask * dpace_weights).sum()
-            loss_den = loss_num.new_zeros(())
+            loss_weights = weight_mask * dpace_weights
         else:  # defensive: __init__ validates the configured loss type.
             raise ValueError(f"unknown loss_type {self.loss_type!r}")
+
+        loss_num = (neg_log_q * loss_weights).sum()
+        if self.loss_denominator == "batch_size":
+            loss_den = loss_num.new_zeros(())
+        elif self.loss_denominator == "valid_token_count":
+            loss_den = weight_mask.sum()
+        elif self.loss_denominator == "loss_weight_sum":
+            loss_den = loss_weights.sum()
+        else:  # defensive: __init__ validates the configured denominator.
+            raise ValueError(f"unknown loss_denominator {self.loss_denominator!r}")
 
         with torch.no_grad():
             predicted_ids = logits.argmax(dim=-1)
@@ -475,9 +502,10 @@ class OnlineDFlashModel(nn.Module):
             "accuracy_denom": accuracy_denom.detach(),
             "ratio_metrics": ratio_metrics,
         }
-        loss_denominator = (
-            loss_den if self.loss_type == "dflash" else loss_num.new_tensor(float(bsz))
-        )
+        if self.loss_denominator == "batch_size":
+            loss_denominator = loss_num.new_tensor(float(bsz))
+        else:
+            loss_denominator = loss_den
         loss = loss_num / loss_denominator
         metrics["loss_terms"] = (loss_num, loss_denominator.detach())
         accuracy = correct_num / accuracy_denom
