@@ -579,6 +579,11 @@ class TrainingConfig(StrictConfigModel):
         "dpace-continuation-value-only",
     ] = "dflash"
     dpace_alpha: float = 0.5
+    #: DFlash-family loss denominator. When omitted, DFlash uses
+    #: ``loss_weight_sum`` and D-PACE uses ``batch_size``.
+    loss_denominator: Optional[
+        Literal["batch_size", "valid_token_count", "loss_weight_sum"]
+    ] = None
     lambda_base_start: float = 1.0
     lambda_base_decay_ratio: float = 0.5
     dspark_ce_loss_alpha: float = 0.1
@@ -614,6 +619,15 @@ class TrainingConfig(StrictConfigModel):
     def _validate_training_shape(self):
         if not 0.0 <= self.dpace_alpha <= 1.0:
             raise ValueError("training.dpace_alpha must be in [0, 1]")
+        if self.loss_denominator is None:
+            self.loss_denominator = (
+                "loss_weight_sum" if self.loss_type == "dflash" else "batch_size"
+            )
+        if self.loss_type == "dflash" and self.loss_denominator == "batch_size":
+            raise ValueError(
+                "training.loss_denominator='batch_size' is only valid for "
+                "D-PACE losses"
+            )
         if not 0.0 < self.down_sample_ratio <= 1.0:
             raise ValueError("training.down_sample_ratio must be in (0, 1]")
         if not 0.0 < self.down_sample_ratio_min <= self.down_sample_ratio:

@@ -76,6 +76,25 @@ def _write(payload: dict, suffix: str) -> str:
 
 
 class ConfigSchemaTest(unittest.TestCase):
+    def test_dflash_family_loss_denominator_defaults_and_validation(self):
+        dflash = copy.deepcopy(MINIMAL)
+        dflash["training"] = {"loss_type": "dflash"}
+        self.assertEqual(
+            Config.model_validate(dflash).training.loss_denominator,
+            "loss_weight_sum",
+        )
+
+        dpace = copy.deepcopy(MINIMAL)
+        dpace["training"] = {"loss_type": "dpace"}
+        self.assertEqual(
+            Config.model_validate(dpace).training.loss_denominator,
+            "batch_size",
+        )
+
+        dflash["training"]["loss_denominator"] = "batch_size"
+        with self.assertRaisesRegex(ValidationError, "only valid for D-PACE"):
+            Config.model_validate(dflash)
+
     def test_liger_kernel_flag_is_typed_and_defaults_off(self):
         default = Config.model_validate(copy.deepcopy(MINIMAL))
         self.assertFalse(default.model.use_liger_kernel)
