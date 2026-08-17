@@ -367,31 +367,6 @@ class TestDFlashLosses(unittest.TestCase):
         want = _naive_dflash_loss(self.neg_log_q, self.binary_mask, gamma=gamma)
         torch.testing.assert_close(got, want, rtol=0, atol=1e-8)
 
-    def test_dflash_can_reduce_by_valid_token_count(self):
-        gamma = 7.0
-        model = _make_model(
-            self.logits,
-            self.anchors,
-            self.keep_mask,
-            loss_type="dflash",
-            loss_decay_gamma=gamma,
-            loss_denominator="valid_token_count",
-        )
-        got, _accuracy, metrics = model(
-            input_ids=self.input_ids,
-            hidden_states=self.hidden_states,
-            loss_mask=self.loss_mask,
-        )
-        positions = torch.arange(
-            self.neg_log_q.shape[-1], dtype=self.neg_log_q.dtype
-        ).view(1, 1, -1)
-        decay = torch.exp(-(positions - 1).clamp(min=0) / gamma)
-        weighted_sum = (self.neg_log_q * self.binary_mask * decay).sum()
-        valid_token_count = self.binary_mask.sum()
-
-        torch.testing.assert_close(got, weighted_sum / valid_token_count)
-        torch.testing.assert_close(metrics["loss_terms"][1], valid_token_count)
-
     def test_dflash_exposes_additive_loss_and_accuracy_terms(self):
         head = nn.Linear(4, self.logits.shape[-1], bias=False).double()
         model = _make_model(
@@ -476,7 +451,7 @@ class TestDFlashLosses(unittest.TestCase):
         )
         torch.testing.assert_close(got, want, rtol=0, atol=1e-10)
 
-    def test_dpace_loss_reduces_by_valid_token_count(self):
+    def test_dpace_loss_reduces_by_batch_size(self):
         alpha = 0.5
         model = _make_model(
             self.logits,
@@ -484,7 +459,6 @@ class TestDFlashLosses(unittest.TestCase):
             self.keep_mask,
             loss_type="dpace",
             dpace_alpha=alpha,
-            loss_denominator="valid_token_count",
         )
         got, _accuracy, metrics = model(
             input_ids=self.input_ids,
@@ -493,62 +467,15 @@ class TestDFlashLosses(unittest.TestCase):
         )
         weight = _naive_dpace_weight(self.q, self.binary_mask, alpha, "dpace")
         weighted_sum = (self.neg_log_q * weight * self.binary_mask).sum()
-        valid_token_count = self.binary_mask.sum()
-        token_count_loss = weighted_sum / valid_token_count
+        token_count_loss = weighted_sum / ((weight * self.binary_mask).sum() + 1e-6)
         batch_loss = weighted_sum / float(self.input_ids.shape[0])
-        torch.testing.assert_close(got, token_count_loss, rtol=0, atol=1e-10)
+        torch.testing.assert_close(got, batch_loss, rtol=0, atol=1e-10)
         torch.testing.assert_close(metrics["loss_terms"][0], weighted_sum)
-        torch.testing.assert_close(metrics["loss_terms"][1], valid_token_count)
-        self.assertFalse(torch.allclose(got, batch_loss))
-
-    def test_dpace_can_reduce_by_loss_weight_sum(self):
-        alpha = 0.5
-        model = _make_model(
-            self.logits,
-            self.anchors,
-            self.keep_mask,
-            loss_type="dpace",
-            dpace_alpha=alpha,
-            loss_denominator="loss_weight_sum",
-        )
-        got, _accuracy, metrics = model(
-            input_ids=self.input_ids,
-            hidden_states=self.hidden_states,
-            loss_mask=self.loss_mask,
-        )
-        weight = _naive_dpace_weight(self.q, self.binary_mask, alpha, "dpace")
-        effective_weights = weight * self.binary_mask
-        weighted_sum = (self.neg_log_q * effective_weights).sum()
-        loss_weight_sum = effective_weights.sum()
-
-        torch.testing.assert_close(got, weighted_sum / loss_weight_sum)
-        torch.testing.assert_close(metrics["loss_terms"][1], loss_weight_sum)
-
-    def test_dpace_defaults_to_batch_size_denominator(self):
-        alpha = 0.5
-        model = _make_model(
-            self.logits,
-            self.anchors,
-            self.keep_mask,
-            loss_type="dpace",
-            dpace_alpha=alpha,
-        )
-        got, _accuracy, metrics = model(
-            input_ids=self.input_ids,
-            hidden_states=self.hidden_states,
-            loss_mask=self.loss_mask,
-        )
-        weight = _naive_dpace_weight(self.q, self.binary_mask, alpha, "dpace")
-        weighted_sum = (self.neg_log_q * weight * self.binary_mask).sum()
-        batch_size = got.new_tensor(float(self.input_ids.shape[0]))
-
         torch.testing.assert_close(
-            got,
-            weighted_sum / batch_size,
-            rtol=0,
-            atol=1e-10,
+            metrics["loss_terms"][1],
+            got.new_tensor(float(self.input_ids.shape[0])),
         )
-        torch.testing.assert_close(metrics["loss_terms"][1], batch_size)
+        self.assertFalse(torch.allclose(got, token_count_loss))
 
     def test_alpha_changes_dpace_loss(self):
         low_alpha = self._forward_loss(loss_type="dpace", dpace_alpha=0.1)
@@ -556,17 +483,13 @@ class TestDFlashLosses(unittest.TestCase):
         self.assertNotAlmostEqual(low_alpha.item(), high_alpha.item(), places=8)
 
     def test_dflash_family_chunking_matches_full_loss_metrics_and_gradients(self):
-        cases = (
-            ("dflash", "loss_weight_sum"),
-            ("dflash", "valid_token_count"),
-            ("dpace", "batch_size"),
-            ("dpace", "valid_token_count"),
-            ("dpace", "loss_weight_sum"),
-            ("dpace-cumulative-confidence-only", "batch_size"),
-            ("dpace-continuation-value-only", "batch_size"),
-        )
-        for loss_type, denominator in cases:
-            with self.subTest(loss_type=loss_type, denominator=denominator):
+        for loss_type in (
+            "dflash",
+            "dpace",
+            "dpace-cumulative-confidence-only",
+            "dpace-continuation-value-only",
+        ):
+            with self.subTest(loss_type=loss_type):
                 torch.manual_seed(77)
                 head = nn.Linear(4, self.logits.shape[-1], bias=False).double()
                 full = _make_model(
@@ -576,7 +499,6 @@ class TestDFlashLosses(unittest.TestCase):
                     draft_model=_LearnableDSparkDraft(4).double(),
                     lm_head=head,
                     loss_type=loss_type,
-                    loss_denominator=denominator,
                     loss_decay_gamma=3.0,
                     objective_chunk_blocks=0,
                 )
@@ -587,7 +509,6 @@ class TestDFlashLosses(unittest.TestCase):
                     draft_model=_LearnableDSparkDraft(4).double(),
                     lm_head=copy.deepcopy(head),
                     loss_type=loss_type,
-                    loss_denominator=denominator,
                     loss_decay_gamma=3.0,
                     objective_chunk_blocks=1,
                 )
@@ -648,26 +569,6 @@ class TestDFlashLosses(unittest.TestCase):
                 self.keep_mask,
                 loss_type="dpace",
                 dpace_alpha=1.5,
-            )
-
-    def test_invalid_loss_denominator_rejected(self):
-        with self.assertRaisesRegex(ValueError, "loss_denominator"):
-            _make_model(
-                self.logits,
-                self.anchors,
-                self.keep_mask,
-                loss_type="dpace",
-                loss_denominator="weighted_tokens",
-            )
-
-    def test_batch_size_denominator_is_rejected_for_dflash(self):
-        with self.assertRaisesRegex(ValueError, "only valid for D-PACE"):
-            _make_model(
-                self.logits,
-                self.anchors,
-                self.keep_mask,
-                loss_type="dflash",
-                loss_denominator="batch_size",
             )
 
     def test_dflash_draft_stub_does_not_leak_to_sys_modules(self):

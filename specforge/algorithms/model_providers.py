@@ -388,7 +388,6 @@ def build_dflash_model(
             **common,
             loss_type=cfg.training.loss_type,
             dpace_alpha=cfg.training.dpace_alpha,
-            loss_denominator=cfg.training.loss_denominator,
         ),
     )
 
