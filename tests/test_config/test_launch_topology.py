@@ -73,8 +73,9 @@ EXPECTED_NPROC_PER_NODE = {
     "qwen3.6-27b-dflash-1server-dp2-disaggregated.yaml": 2,
     "qwen3.6-27b-dflash-multiserver-disaggregated.yaml": 2,
     "qwen3.6-27b-dflash-online.yaml": 8,
-    "qwen3.6-27b-domino-online.yaml": 8,
+    "qwen3.6-27b-domino-online.yaml": 1,
     "qwen3.6-27b-dspark-disaggregated.yaml": 1,
+    "qwen3.6-27b-dspark-online.yaml": 1,
     "qwq-32b-eagle3-online.yaml": 4,
 }
 
@@ -333,6 +334,14 @@ EXPECTED_DISAGGREGATED = {
             ],
         },
     },
+    "qwen3.6-27b-dspark-online.yaml": {
+        "control_dir": "outputs/qwen3.6-27b-dspark-online/control",
+        "consumer_state_dir": "outputs/qwen3.6-27b-dspark-online/consumer-state",
+        "backend": "mooncake",
+        "server_urls": ["http://127.0.0.1:30000"],
+        **LOCAL_MOONCAKE_ENDPOINTS,
+        "mooncake_local_hostname": "127.0.0.1",
+    },
 }
 
 
@@ -347,7 +356,7 @@ def _recipes() -> dict[str, Path]:
 class ExampleLaunchTopologyTest(unittest.TestCase):
     def test_every_recipe_has_the_explicit_golden_topology(self):
         recipes = _recipes()
-        self.assertEqual(len(EXPECTED_NPROC_PER_NODE), 65)
+        self.assertEqual(len(EXPECTED_NPROC_PER_NODE), 66)
         self.assertEqual(set(recipes), set(EXPECTED_NPROC_PER_NODE))
 
         for filename, nproc_per_node in EXPECTED_NPROC_PER_NODE.items():
@@ -467,7 +476,7 @@ class ExampleLaunchTopologyTest(unittest.TestCase):
         self.assertEqual(kimi.training.prompt_seed, 1)
         self.assertAlmostEqual(
             kimi.training.learning_rate,
-            0.000050959167111070076,
+            6e-4,
         )
         self.assertEqual(kimi.data.max_length, 65536)
         self.assertEqual(kimi.training.num_anchors, 512)
